@@ -10,11 +10,16 @@ class Node:
         self.threshold = threshold  # `Threshold value for the feature`
         self.left = left  # Left child
         self.right = right  # Right child
-        self.value = value  # For leaf nodes (empty means not a leaf node)
-        self.stats = None  # To track statistics for streaming updates
+        self.value = value  # Prediction for leaf nodes
+        # Keep track of the majority label routed through this node
+        self.majority_label = value
+        # Maintain label counts for splitting and majority tracking
+        self.split_stats = Counter()
+        # Track lazy-pruning statistics separately from split statistics
+        self.pruning_stats = {"sample_count": 0, "misclassification_count": 0}
 
     def is_leaf_node(self):
-        return self.value is not None  # `Check if a node is a leaf node`
+        return self.left is None and self.right is None
 
 
 class LazyDecisionTree:
@@ -43,7 +48,8 @@ class LazyDecisionTree:
             if not self.n_features
             else min(X_sample.shape[0], self.n_features)
         )
-        self.root = Node(value=self._most_common_label([y_sample]))
+        self.root = Node(value=y_sample)
+        self.root.majority_label = y_sample
 
     def update(self, X, y):
         """
@@ -62,11 +68,12 @@ class LazyDecisionTree:
         """
         Traverse the tree and update statistics or split nodes.
         """
+        node.split_stats[y] += 1
+        node.majority_label = self._most_common_label(node.split_stats)
+
         if node.is_leaf_node():
-            # Update the statistics for leaf nodes
-            if node.stats is None:
-                node.stats = Counter()
-            node.stats[y] += 1
+            # Ensure the leaf prediction matches the observed majority label
+            node.value = node.majority_label
 
             # Check if node should split
             if self.data_count % self.grace_period == 0:
@@ -76,43 +83,48 @@ class LazyDecisionTree:
         # Navigate the tree
         if X[node.feature] <= node.threshold:
             if not node.left:
-                node.left = Node(value=self._most_common_label([y]))
+                node.left = Node(value=node.majority_label)
             self._update_tree(node.left, X, y, depth + 1)
         else:
             if not node.right:
-                node.right = Node(value=self._most_common_label([y]))
+                node.right = Node(value=node.majority_label)
             self._update_tree(node.right, X, y, depth + 1)
 
     def _attempt_split(self, node, X, y, depth):
         """
         Check if a node should split based on its statistics.
         """
-        if depth >= self.max_depth or len(node.stats) < self.min_samples_split:
+        if depth >= self.max_depth or sum(node.split_stats.values()) < self.min_samples_split:
             return
         np.random.seed(self.seed)
         # Randomly sample features for splitting
         feat_idxs = np.random.choice(len(X), self.n_features, replace=False)
 
         # Find the best split
-        best_feature, best_thresh = self._best_split(
-            X, list(node.stats.elements()), feat_idxs
-        )
+        best_feature, best_thresh = self._best_split(X, node.split_stats, feat_idxs)
 
         if best_feature is not None:
             # Create new child nodes based on the split
             node.feature = best_feature
             node.threshold = best_thresh
             node.value = None
-            node.left = Node(value=self._most_common_label([y]))
-            node.right = Node(value=self._most_common_label([y]))
-            node.stats = None  # Clear stats after splitting
+            node.left = Node(value=node.majority_label)
+            node.right = Node(value=node.majority_label)
 
-    def _best_split(self, X, y, feat_idxs):
+    def _best_split(self, X, label_counts, feat_idxs):
         """
         Find the best split point among a subset of features.
         """
         best_gain = -1
         split_idx, split_threshold = None, None
+
+        if isinstance(label_counts, Counter):
+            labels = list(label_counts.elements())
+        else:
+            labels = list(label_counts)
+
+        if not labels:
+            return split_idx, split_threshold
 
         for feat_idx in feat_idxs:
             X_column = X[feat_idx]
@@ -120,7 +132,7 @@ class LazyDecisionTree:
 
             for thr in thresholds:
                 # Calculate information gain
-                gain = self._information_gain(y, [X_column], thr)
+                gain = self._information_gain(labels, [X_column], thr)
 
                 if gain > best_gain:
                     best_gain = gain
@@ -156,10 +168,16 @@ class LazyDecisionTree:
         ps = hist / len(y)
         return -np.sum([p * np.log(p) for p in ps if p > 0])
 
-    def _most_common_label(self, y):
-        counter = Counter(y)
-        value = counter.most_common(1)[0][0]
-        return value
+    def _most_common_label(self, labels):
+        if isinstance(labels, Counter):
+            counter = labels
+        else:
+            counter = Counter(labels)
+
+        if not counter:
+            return None
+
+        return counter.most_common(1)[0][0]
 
     def old_predict(self, X):
         """
@@ -194,12 +212,14 @@ class LazyDecisionTree:
         # Check if the current node is a leaf node
         if node.is_leaf_node():
             print(
-                f"{indent}Leaf: Predict={node.value}, Stats={dict(node.stats) if node.stats else {}}"
+                f"{indent}Leaf: Predict={node.value}, Stats={dict(node.split_stats)}"
             )
             return
 
         # Print current node's feature and threshold
-        print(f"{indent}Node: Feature={node.feature}, Threshold={node.threshold}")
+        print(
+            f"{indent}Node: Feature={node.feature}, Threshold={node.threshold}, Majority={node.majority_label}"
+        )
 
         # Recurse into left and right subtrees if they exist
         if node.left:
@@ -209,12 +229,16 @@ class LazyDecisionTree:
             print(f"{indent}  Right:")
             self.print_tree(node.right, depth + 1)
 
-    def predict(self, X, node=None, depth=0, grace_period=200, delta=0.05):
+    def predict(
+        self, X, *, label=None, node=None, depth=0, grace_period=200, delta=0.05
+    ):
         """
         Predict a label for a single data point X, with Lazy Pruning.
 
         Args:
             X (array-like): The data point to predict.
+            label (int, optional): Ground-truth label if available. When provided,
+                lazy pruning statistics are updated using this label.
             node (Node): The current node to evaluate. Defaults to root.
             depth (int): The depth of the current node in the tree.
             grace_period (int): The minimum number of samples required to consider pruning.
@@ -226,57 +250,54 @@ class LazyDecisionTree:
         if node is None:
             node = self.root  # Start prediction from the root
 
+        if node is None:
+            raise ValueError("The tree has not been initialized. Call `update` first.")
+
         # If the node is a leaf, return its prediction
         if node.is_leaf_node():
-            return node.value
+            return node.value if node.value is not None else node.majority_label
 
-        # Update node stats for Lazy Pruning
-        if node.stats is None:
-            node.stats = {"sample_count": 0, "misclassification_count": 0}
+        predicted_label = node.majority_label
 
-        # Track samples routed through this branch
-        node.stats["sample_count"] += 1
+        if label is not None and predicted_label is not None:
+            stats = node.pruning_stats
+            stats["sample_count"] += 1
+            if label != predicted_label:
+                stats["misclassification_count"] += 1
 
-        # Evaluate the prediction accuracy at this node
-        predicted_label = node.value
-        actual_label = X[-1]  # Assuming last element in X is the label
-        if predicted_label != actual_label:
-            node.stats["misclassification_count"] += 1
+            if stats["sample_count"] >= grace_period:
+                misclassification_rate = (
+                    stats["misclassification_count"] / stats["sample_count"]
+                )
+                epsilon = np.sqrt(np.log(1 / delta) / (2 * stats["sample_count"]))
 
-        # Check if pruning is necessary (after grace period)
-        if node.stats["sample_count"] >= grace_period:
-            misclassification_rate = (
-                node.stats["misclassification_count"] / node.stats["sample_count"]
-            )
-
-            # Calculate Hoeffding Bound
-            epsilon = np.sqrt(np.log(1 / delta) / (2 * node.stats["sample_count"]))
-
-            # If utility is negligible (difference within epsilon), prune
-            if misclassification_rate < epsilon:
-                # Collapse the branch into a leaf node
-                node.value = self._most_common_label(list(node.stats.elements()))
-                node.left = None
-                node.right = None
-                node.feature = None
-                node.threshold = None
-                node.stats = None
-                return node.value
+                if misclassification_rate < epsilon:
+                    # Collapse the branch into a leaf node using the stored majority label
+                    node.left = None
+                    node.right = None
+                    node.feature = None
+                    node.threshold = None
+                    node.value = node.majority_label
+                    node.pruning_stats = {"sample_count": 0, "misclassification_count": 0}
+                    return node.value
 
         # Continue traversal based on the feature and threshold
+        if node.feature is None or node.threshold is None:
+            return predicted_label
+
         if X[node.feature] <= node.threshold:
-            return self.predict(
-                X,
-                node=node.left,
-                depth=depth + 1,
-                grace_period=grace_period,
-                delta=delta,
-            )
+            next_node = node.left
         else:
-            return self.predict(
-                X,
-                node=node.right,
-                depth=depth + 1,
-                grace_period=grace_period,
-                delta=delta,
-            )
+            next_node = node.right
+
+        if next_node is None:
+            return predicted_label
+
+        return self.predict(
+            X,
+            label=label,
+            node=next_node,
+            depth=depth + 1,
+            grace_period=grace_period,
+            delta=delta,
+        )
