@@ -58,7 +58,7 @@ def simulate_streaming(X_train, Y_train, X_test, Y_test, model, sleep_time=0.001
 
     for i, (x, y) in enumerate(zip(X_test, Y_test)):
         start_time = time.time()
-        prediction = model.predict(x)  # Prediction triggers pruning
+        prediction = model.predict(x, label=y)  # Prediction triggers pruning
         end_time = time.time()
 
         # Update performance metrics
