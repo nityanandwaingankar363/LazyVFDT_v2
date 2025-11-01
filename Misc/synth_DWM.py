@@ -35,17 +35,6 @@ def generate_synthetic_data(n_samples=1000, n_features=5, drift_point=None):
     return np.array(X), np.array(y)
 
 
-# param_grid = {
-#     "num_classes": [2],
-#     "beta": [0.4],
-#     "theta": [0.2],
-#     "p": [4],
-#     "create_classifier": [lambda: DecisionTreeClassifier(max_depth=3)],
-#     "num_features": [10],
-#     "window_size": [50],
-# }
-
-
 def simulate_streaming(X_train, Y_train, X_test, Y_test, model, sleep_time=0.001):
     """
     Trains LDT first on training data, then simulates streaming using test data.
@@ -131,10 +120,6 @@ plt.ylabel("Accuracy")
 plt.title("Accuracy Over Time (DWM)")
 plt.legend()
 plt.show()
-
-# plt.axis('off')
-# plt.gca().set_position([0, 0, 1, 1])
-# plt.savefig("test.svg")
 
 # Print final results
 print(f"Final Accuracy: {accuracy_over_time[-1] * 100:.2f}%")
