@@ -62,3 +62,8 @@
 - [ ] CSV logs include accuracy, training_time, avg_latency_ms, p95_latency_ms for both models.
 - [ ] Aggregated tables and 2–3 plots (accuracy-over-time; training time/latency bar charts) generated.
 - [ ] Narrative explains when/why Lazy VFDT helps and any limitations.
+
+## 5b) Real-World Drift Datasets (Optional Reference)
+- Electricity (ELEC2): canonical market drift benchmark (binary UP/DOWN). Use `--dataset electricity --data-path <file.csv>`; loader at `datasets/electricity.py`. Preserves chronological order.
+- Gas Sensor Array Drift (UCI): batch-wise sensor drift over time. Use `--dataset gas_sensor --data-path <file.csv>`; loader at `datasets/gas_sensor.py`. Sorts by `batch` if present.
+- Splitting policy: use chronological 70/30 holdout (no shuffle) to maintain drift order.
