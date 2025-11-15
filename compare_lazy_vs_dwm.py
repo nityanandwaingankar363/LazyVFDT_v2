@@ -184,6 +184,13 @@ def main():
         default="auto",
         help="Parameter preset: default (original), gas (multi-class friendly), or auto by dataset",
     )
+    parser.add_argument("--ldt-max-depth", type=int, default=None, help="Override Lazy VFDT max depth")
+    parser.add_argument("--ldt-grace-period", type=int, default=None, help="Override Lazy VFDT grace period")
+    parser.add_argument("--dwm-base-depth", type=int, default=None, help="Override DWM base learner max depth")
+    parser.add_argument("--dwm-window-size", type=int, default=None, help="Override DWM sliding window size")
+    parser.add_argument("--dwm-beta", type=float, default=None, help="Override DWM beta")
+    parser.add_argument("--dwm-theta", type=float, default=None, help="Override DWM theta")
+    parser.add_argument("--dwm-p", type=int, default=None, help="Override DWM maintenance period p")
     args = parser.parse_args()
 
     seeds = args.seeds if args.seeds else [args.seed]
@@ -300,6 +307,22 @@ def main():
 
         if args.preset == "gas" or (args.preset == "auto" and args.dataset == "gas_sensor"):
             apply_gas_preset()
+
+        # Apply manual overrides
+        if args.ldt_max_depth is not None:
+            ldt_max_depth = args.ldt_max_depth
+        if args.ldt_grace_period is not None:
+            ldt_grace = args.ldt_grace_period
+        if args.dwm_base_depth is not None:
+            dwm_base_depth = args.dwm_base_depth
+        if args.dwm_window_size is not None:
+            dwm_window = args.dwm_window_size
+        if args.dwm_beta is not None:
+            dwm_beta = args.dwm_beta
+        if args.dwm_theta is not None:
+            dwm_theta = args.dwm_theta
+        if args.dwm_p is not None:
+            dwm_p = args.dwm_p
 
         lazy_metrics = evaluate_lazy_tree(
             X_train,

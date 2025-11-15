@@ -57,6 +57,15 @@
 - Results: CSV files per condition, aggregate summaries, and plots.
 - Thesis content: method, setup, results, and discussion referencing produced tables/figures.
 
+## 11) Current Status & References
+- Aggregated metrics live in `docs/results_summary.md` (generated via `tools/summarize_results.py`).
+- Report preparation checklist (datasets, preprocessing, thesis outline) lives in `docs/report_prep.md`.
+- `results.csv` now contains all logged runs (Electricity, Gas Sensor with per-batch scaling, Airlines with scaling). Use `tools/summarize_results.py --csv results.csv --out docs/results_summary.md` after new runs.
+- Dataset-specific presets:
+  - `--preset gas --scale-per-batch` for Gas Sensor (max_depth=10, grace=20, per-batch scaling).
+  - `--scale --ldt-max-depth 10 --ldt-grace-period 20 --dwm-base-depth 4 --dwm-window-size 120` for Airlines.
+  - Electricity and synthetic drift keep the default configuration.
+
 ## 11) Acceptance Checklist
 - [ ] Runs reproduce across 5 seeds for all chosen conditions.
 - [ ] CSV logs include accuracy, training_time, avg_latency_ms, p95_latency_ms for both models.
